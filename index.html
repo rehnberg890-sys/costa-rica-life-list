@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Costa Rica Life List</title>
+  <meta name="description" content="Every bird, mammal, reptile and amphibian species in Costa Rica, with range maps, iNaturalist and GBIF records, and a personal seen-species checklist.">
+  <link rel="icon" href="icons/favicon-32.png" type="image/png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#2f7d32">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="CR Life List">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="no-server">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="currentColor"/><path d="M9 17l5 5 9-11" stroke="#fff" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div>
+        <h1>Costa Rica Life List</h1>
+        <p class="sub">Birds · Mammals · Reptiles · Amphibians</p>
+      </div>
+    </div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+      <input id="q" type="search" placeholder="Search species, family or Spanish name…" autocomplete="off" aria-label="Search species">
+    </div>
+    <div class="menu">
+      <button id="menuBtn" class="ghost" aria-haspopup="true" aria-expanded="false">My list ▾</button>
+      <div id="menuPanel" class="menu-panel" hidden>
+        <button data-act="install" id="installItem">Install app…</button>
+        <button data-act="inat">Import seen species from iNaturalist…</button>
+        <button data-act="export">Export checklist (JSON backup)</button>
+        <button data-act="csv">Export seen species (CSV)</button>
+        <button data-act="import">Import checklist backup…</button>
+        <hr>
+        <button data-act="about">About the data</button>
+        <button data-act="reset" class="danger">Clear all marks…</button>
+      </div>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </div>
+  </header>
+
+  <div id="offlineBar" class="offline-bar" hidden>Offline: showing saved data. Your checkmarks still save.</div>
+
+  <section class="progress-hero" aria-label="Checklist progress">
+    <div class="overall">
+      <div class="overall-head">
+        <span class="label">Species seen</span>
+        <span class="value"><b id="ovSeen">0</b> / <span id="ovTotal">0</span></span>
+        <span class="pct" id="ovPct">0%</span>
+      </div>
+      <div class="bar big" role="progressbar" aria-labelledby="ovPct" id="ovBarWrap" aria-valuemin="0" aria-valuemax="100"><span id="ovBar"></span></div>
+    </div>
+    <nav class="groups" id="groupTabs" aria-label="Animal groups"></nav>
+  </section>
+
+  <section class="toolbar">
+    <div class="seg" role="group" aria-label="Seen filter">
+      <button data-seen="all" class="on">All</button>
+      <button data-seen="unseen">Not seen</button>
+      <button data-seen="seen">Seen</button>
+    </div>
+    <select id="family" aria-label="Family"><option value="">All families</option></select>
+    <select id="genus" aria-label="Genus" hidden><option value="">All genera</option></select>
+    <select id="sort" aria-label="Sort">
+      <option value="tax">Taxonomic (by family)</option>
+      <option value="family">Family A–Z</option>
+      <option value="name">Common name A–Z</option>
+      <option value="sci">Scientific name A–Z</option>
+      <option value="obs">Most observed in CR</option>
+      <option value="rare">Least observed in CR</option>
+      <option value="recent">Recently marked seen</option>
+    </select>
+    <div class="chips" role="group" aria-label="Filters">
+      <button class="chip" data-flag="endemic">Endemic</button>
+      <button class="chip" data-flag="threat">Threatened</button>
+      <button class="chip" data-flag="book">In my field guides</button>
+      <button class="chip" data-flag="native" title="Hide introduced species">Native only</button>
+      <button class="chip" data-flag="confirmed" title="Hide unconfirmed species from the list and the progress bars">Confirmed only</button>
+    </div>
+    <div class="seg view" role="group" aria-label="View">
+      <button data-view="grid" class="on" title="Photo grid">▦</button>
+      <button data-view="list" title="Checklist rows">☰</button>
+    </div>
+  </section>
+
+  <p class="count" id="resultCount" aria-live="polite"></p>
+  <main id="results" class="grid"></main>
+  <div id="sentinel"></div>
+
+  <aside id="detail" class="detail" hidden aria-label="Species details">
+    <div class="detail-scrim" data-close></div>
+    <article class="detail-card" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+      <button class="close" data-close aria-label="Close">×</button>
+      <div id="detailBody"></div>
+    </article>
+  </aside>
+
+  <button id="chatFab" class="chat-fab" aria-controls="chat" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4h0A2.5 2.5 0 0 1 4 13.5z"/></svg>
+    <span>Ask</span>
+  </button>
+  <section id="chat" class="chat" hidden aria-label="Wildlife assistant">
+    <header class="chat-head">
+      <div><b>Ask the field guide</b><span>Answers from iNaturalist, GBIF and your field guides</span></div>
+      <button class="ghost small" id="chatNew" title="Start a new conversation">New</button>
+      <button class="chat-close" id="chatClose" aria-label="Close chat">×</button>
+    </header>
+    <div class="chat-log" id="chatLog" aria-live="polite"></div>
+    <form class="chat-form" id="chatForm">
+      <textarea id="chatInput" rows="1" placeholder="e.g. Best place and time to see a Resplendent Quetzal?" aria-label="Your question"></textarea>
+      <button type="submit" class="btn primary" id="chatSend">Send</button>
+    </form>
+  </section>
+
+  <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+  <div id="toast" role="status" hidden></div>
+
+  <script src="data/species.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
