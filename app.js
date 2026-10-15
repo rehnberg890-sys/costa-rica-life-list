@@ -56,7 +56,10 @@
   const safeGet = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
   const safeSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
   let checklist = safeGet(STORE) || {};
-  const saveChecklist = () => { if (!safeSet(STORE, checklist)) toast('Could not save — browser storage is unavailable. Export a backup!'); };
+  const saveChecklist = () => {
+    if (!safeSet(STORE, checklist)) toast('Could not save — browser storage is unavailable. Export a backup!');
+    queueCloudChanges();
+  };
 
   const ui = Object.assign({ group: 'all', seen: 'all', family: '', genus: '', sort: 'tax', view: 'grid', flags: [] }, safeGet(UI_STORE) || {});
   ui.flags = new Set(ui.flags);
@@ -734,7 +737,7 @@
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (!act) return;
     menuPanel.hidden = true;
-    ({ install: installApp, inat: importInat, export: exportJson, csv: exportCsv, import: () => $('#importFile').click(), about, reset })[act]();
+    ({ account: openAccount, install: installApp, inat: importInat, export: exportJson, csv: exportCsv, import: () => $('#importFile').click(), about, reset })[act]();
   });
 
   function download(name, text, type) {
@@ -827,12 +830,12 @@
       <p><b>Unconfirmed</b> species (${fmt(species.filter((s) => s.u).length)}) have only unverified iNaturalist observations, or are known in Costa Rica only from GBIF records and also recorded in Panama or Nicaragua. GBIF names that turned out to be older names for a listed species were merged. Turn on “Confirmed only” to leave them out of the list and the progress bars.</p>
       <p>Species never seen in Costa Rica (no iNaturalist observation or field record) are left out when their known range lies elsewhere; introduced species are always kept. Domestic animals and hybrids are left out; extinct species are listed but not counted toward progress.</p>
       <p>Maps use live iNaturalist range, model and observation tiles and GBIF occurrence tiles. Photos are from iNaturalist users under their stated licenses.</p>
-      <p>Your checklist is stored in this browser only. Use “Export checklist” for backups.</p>
+      <p>${sync.email ? `Your checklist is saved in this browser and in your account (${esc(sync.email)}).` : `Your checklist is stored in this browser only${FIREBASE ? '; sign in to keep it in an account' : ''}. Use “Export checklist” for backups.`}</p>
       <div class="actions"><button class="btn primary" value="cancel">Close</button></div>`);
   }
 
   function reset() {
-    dialog(`<h2>Clear all marks?</h2><p>This removes all ${fmt(Object.keys(checklist).length)} seen marks from this browser. Export a backup first if you might want them back.</p>
+    dialog(`<h2>Clear all marks?</h2><p>This removes all ${fmt(Object.keys(checklist).length)} seen marks from this browser${sync.uid ? ' and from your account, on every device' : ''}. Export a backup first if you might want them back.</p>
       <div class="actions"><button class="btn" value="cancel">Cancel</button><button class="btn danger" value="ok">Clear everything</button></div>`,
     (dlg) => { checklist = {}; saveChecklist(); renderProgress(); render(); dlg.close(); toast('Checklist cleared.'); });
   }
@@ -843,6 +846,322 @@
     t.textContent = msg; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4200);
   }
+
+  // A dialog that resolves with the value of the button that closed it ('' for Escape).
+  function ask(html) {
+    const dlg = $('#dlg');
+    if (dlg.open) dlg.close();
+    dlg.returnValue = '';
+    dialog(html);
+    return new Promise((resolve) => {
+      const done = () => { if (dlg.open) return; dlg.removeEventListener('close', done); resolve(dlg.returnValue); };
+      dlg.addEventListener('close', done); // a late close event from an earlier dialog finds it open and waits
+    });
+  }
+
+  // ---------- account & cloud sync ----------
+  // With a Firebase project set up (firebase-config.js), people can sign in and
+  // keep their checklist in their account, so it follows them between devices.
+  // The list still lives in localStorage and works offline. Each change also
+  // goes in an outbox (sync.pending) that is sent to the account when there is
+  // a connection, and whenever the account's list changes it replaces this
+  // device's copy, with any unsent changes laid on top. The Firebase code
+  // (vendor/firebase/cloud.js, built from src/cloud.mjs) loads only for people
+  // who sign in.
+  const FIREBASE = window.CR_FIREBASE;
+  const SYNC_STORE = 'crLifeList.sync.v1';
+  // uid: the account this device's list belongs to; email: shown while signed
+  // in; pending: changes not yet in the account ({id: entry, or null if unmarked}).
+  const sync = Object.assign({ uid: null, email: '', pending: {} }, safeGet(SYNC_STORE) || {});
+  const saveSync = () => safeSet(SYNC_STORE, sync);
+  const entryKey = (v) => (v ? JSON.stringify(Object.keys(v).sort().map((k) => [k, v[k]])) : '');
+  const keysOf = (list) => new Map(Object.entries(list).map(([id, v]) => [id, entryKey(v)]));
+  const changedIds = (a, b) => [...new Set([...a.keys(), ...b.keys()])].filter((id) => a.get(id) !== b.get(id));
+  let saved = keysOf(checklist); // the list as last saved, to tell what a save changed
+  let cloud = null, cloudLoading = null, user = null, unwatch = null, userGen = 0;
+  let joining = false, remoteWhileJoining = null;
+  let flushing = false, flushTimer = null, retryMs = 2000, syncError = '';
+
+  // Called on every save: whatever changed goes in the outbox.
+  function queueCloudChanges() {
+    const now = keysOf(checklist);
+    const ids = changedIds(saved, now);
+    saved = now;
+    if (!sync.uid || !ids.length) return;
+    for (const id of ids) sync.pending[id] = checklist[id] ? { ...checklist[id] } : null;
+    saveSync();
+    scheduleFlush();
+    renderSync();
+  }
+
+  function scheduleFlush(ms = 500) {
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(flush, ms);
+  }
+  // Sends the outbox to the account. Changes made while a save is under way
+  // stay in the outbox for the next one.
+  async function flush() {
+    if (!cloud || !user || user.uid !== sync.uid || flushing) return;
+    const ids = Object.keys(sync.pending);
+    if (!ids.length) return;
+    const batch = Object.fromEntries(ids.map((id) => [id, sync.pending[id] && { ...sync.pending[id] }]));
+    const gen = userGen;
+    flushing = true;
+    renderSync();
+    try {
+      await cloud.save(sync.uid, batch);
+      if (gen !== userGen) return;
+      for (const id of ids) if (entryKey(sync.pending[id]) === entryKey(batch[id])) delete sync.pending[id];
+      saveSync();
+      syncError = ''; retryMs = 2000;
+    } catch (err) {
+      if (gen !== userGen) return;
+      syncError = authMessage(err) || 'Could not save.';
+      retryMs = Math.min(retryMs * 2, 60000);
+    } finally {
+      if (gen === userGen) {
+        flushing = false;
+        if (Object.keys(sync.pending).length) scheduleFlush(syncError ? retryMs : 300);
+        renderSync();
+      }
+    }
+  }
+
+  // The account's list arrived or changed: it becomes this device's list, with
+  // changes still in the outbox laid on top.
+  function applyRemote(remote) {
+    const next = { ...remote };
+    for (const [id, v] of Object.entries(sync.pending)) { if (v) next[id] = { ...v }; else delete next[id]; }
+    const now = keysOf(next);
+    const ids = changedIds(saved, now);
+    checklist = next; saved = now;
+    if (!ids.length) return;
+    safeSet(STORE, checklist);
+    renderProgress();
+    if (ids.length > 40 || ui.seen !== 'all' || ui.sort === 'recent') {
+      render();
+      if (openId) renderSeenBox(byId.get(openId));
+    } else {
+      ids.forEach((id) => { const s = byId.get(id); if (s) refreshItem(s); });
+    }
+  }
+
+  // First sign-in on this device: species marked only here are added to the
+  // account, after asking when the account already has a list of its own.
+  async function join(u, remote) {
+    const localOnly = Object.keys(checklist).filter((id) => !(id in remote));
+    const remoteCount = Object.keys(remote).length;
+    const add = !(remoteCount && localOnly.length) || (await ask(`<h2>Add this device's marks to your account?</h2>
+      <p>Your account has ${fmt(remoteCount)} seen species. This device has ${fmt(localOnly.length)} more that aren't in your account yet.</p>
+      <p class="muted">If you leave them out, this device will show only your account's list.</p>
+      <div class="actions"><button class="btn" value="skip">Leave them out</button><button class="btn primary" value="ok">Add them</button></div>`)) !== 'skip';
+    if (user !== u) return; // signed out meanwhile
+    sync.uid = u.uid;
+    sync.pending = add ? Object.fromEntries(localOnly.map((id) => [id, { ...checklist[id] }])) : {};
+    saveSync();
+    joining = false;
+    applyRemote(remoteWhileJoining || remote);
+    remoteWhileJoining = null;
+    flush();
+    renderSync();
+    toast(add && localOnly.length
+      ? `Signed in. ${fmt(localOnly.length)} species from this device ${remoteCount ? 'added to' : 'saved in'} your account.`
+      : 'Signed in. Your list is saved in your account.');
+  }
+
+  function onUser(u) {
+    userGen++;
+    if (unwatch) { unwatch(); unwatch = null; }
+    user = u; flushing = false; syncError = ''; joining = false; remoteWhileJoining = null;
+    if (!u) {
+      // Signed out: this device keeps its copy of the list.
+      if (sync.uid || sync.email) { sync.uid = null; sync.email = ''; sync.pending = {}; saveSync(); }
+      renderSync();
+      return;
+    }
+    sync.email = u.email || u.name || 'your account';
+    saveSync();
+    joining = sync.uid !== u.uid;
+    const gen = userGen;
+    let first = true;
+    unwatch = cloud.watch(u.uid, (remote) => {
+      if (gen !== userGen) return;
+      if (joining) {
+        if (first) { first = false; join(u, remote); } else remoteWhileJoining = remote;
+        return;
+      }
+      applyRemote(remote);
+      renderSync();
+    }, (err) => {
+      if (gen !== userGen) return;
+      syncError = authMessage(err) || 'The account could not be read.';
+      renderSync();
+    });
+    if (!joining) flush();
+    renderSync();
+  }
+
+  function startCloud() {
+    if (!FIREBASE) return Promise.reject(new Error('Accounts are not set up for this copy of the app.'));
+    cloudLoading ||= import('./vendor/firebase/cloud.js')
+      .then((m) => { cloud = m.connect(FIREBASE); cloud.onUser(onUser); return cloud; })
+      .catch(() => { cloudLoading = null; throw new Error('Could not load sign-in. Check your connection and try again.'); });
+    return cloudLoading;
+  }
+
+  const AUTH_ERRORS = {
+    'auth/invalid-credential': 'Wrong email or password.',
+    'auth/invalid-login-credentials': 'Wrong email or password.',
+    'auth/wrong-password': 'Wrong email or password.',
+    'auth/user-not-found': 'No account uses that email. Use “Create account” to make one.',
+    'auth/email-already-in-use': 'That email already has an account. Use “Sign in” instead.',
+    'auth/weak-password': 'Choose a password of at least 6 characters.',
+    'auth/invalid-email': 'That email address doesn’t look right.',
+    'auth/missing-password': 'Enter your password.',
+    'auth/popup-blocked': 'The browser blocked Google’s sign-in window. Allow pop-ups for this site, or use email.',
+    'auth/popup-closed-by-user': '',
+    'auth/cancelled-popup-request': '',
+    'auth/user-cancelled': '',
+    'auth/operation-not-allowed': 'This way of signing in isn’t switched on for the app yet.',
+    'auth/unauthorized-domain': 'This web address isn’t allowed to use Google sign-in yet.',
+    'auth/network-request-failed': 'No connection. Try again when you’re online.',
+    'auth/too-many-requests': 'Too many tries. Wait a few minutes, then try again.',
+    'auth/user-disabled': 'This account has been switched off.',
+    'auth/requires-recent-login': 'Sign out and in again, then try once more.',
+    'permission-denied': 'The account’s storage refused it (its security rules may not be set up).',
+    'unavailable': 'The account service can’t be reached right now.',
+  };
+  function authMessage(err) {
+    const code = err?.code || '';
+    if (code in AUTH_ERRORS) return AUTH_ERRORS[code];
+    return String(err?.message || 'Something went wrong.').replace(/^Firebase:\s*/, '').replace(/\s*\((auth|firestore)\/[^)]*\)\.?$/, '');
+  }
+
+  function renderSync() {
+    if (!FIREBASE) return;
+    const n = Object.keys(sync.pending).length;
+    const waiting = `${fmt(n)} change${n === 1 ? '' : 's'}`;
+    let state, text;
+    if (!sync.email) { state = 'local'; text = 'Saved on this device only. <button class="linkish" data-account>Sign in</button> to keep your list in an account.'; }
+    else if (syncError) { state = 'err'; text = `Not saved to your account: ${esc(syncError)}`; }
+    else if (!user || joining) { state = 'busy'; text = 'Connecting to your account…'; }
+    else if (!navigator.onLine) { state = 'off'; text = n ? `Offline: ${waiting} will be saved to your account when you’re back online.` : 'Offline. Changes will be saved to your account when you’re back online.'; }
+    else if (n || flushing) { state = 'busy'; text = 'Saving to your account…'; }
+    else { state = 'ok'; text = 'Saved to your account'; }
+    const line = $('#syncLine');
+    line.innerHTML = `<span class="sdot ${state}"></span><span>${text}${sync.email ? ` · <button class="linkish" data-account>${esc(sync.email)}</button>` : ''}</span>`;
+    line.hidden = false;
+    $('#accountItem').textContent = sync.email ? 'Account and sync…' : 'Sign in to save your list…';
+    $('#accountItem').hidden = false;
+  }
+
+  function openAccount() {
+    if (!FIREBASE) return;
+    if (sync.email) accountDialog(); else signInDialog();
+  }
+
+  const GOOGLE_G = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+
+  function signInDialog() {
+    startCloud().catch(() => {}); // load it now, so Google's window can open straight from the click
+    dialog(`<h2>Save your list to an account</h2>
+      <p>Sign in to keep your checklist in your own account. It syncs between your phone and computer, and stays safe if you clear your browser or change phones. Only you can see it.</p>
+      <button type="button" class="btn google" id="authGoogle">${GOOGLE_G}Continue with Google</button>
+      <div class="or"><span>or use an email and password</span></div>
+      <input type="email" id="authEmail" placeholder="Email" autocomplete="email" required>
+      <input type="password" id="authPw" placeholder="Password (at least 6 characters)" autocomplete="current-password" minlength="6" required>
+      <button type="button" class="linkish forgot" id="authForgot">Forgot your password?</button>
+      <p class="auth-msg" id="authMsg" role="status"></p>
+      <div class="actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn" value="create">Create account</button><button class="btn primary" value="ok">Sign in</button></div>`);
+    const dlg = $('#dlg'), msg = $('#authMsg');
+    const say = (text, isError) => { msg.textContent = text; msg.classList.toggle('err', !!isError); };
+    const lock = (on) => $$('#dlgForm button:not([value="cancel"])').forEach((b) => { b.disabled = on; });
+    // action may return a note to show instead of closing the dialog. With
+    // Firebase already loaded it runs within the click, so Google's sign-in
+    // window isn't blocked as a pop-up.
+    const run = async (label, action, locking = true) => {
+      say(label); if (locking) lock(true);
+      try {
+        const note = await action(cloud || (await startCloud()));
+        if (note) say(note); else if (dlg.open) dlg.close();
+      } catch (err) {
+        if (msg.textContent === label) say(authMessage(err), true); // unless a newer attempt has started
+      } finally { if (locking) lock(false); }
+    };
+    // The buttons stay usable while Google's window is open: if it's closed
+    // without signing in, Firebase can take a while to notice.
+    $('#authGoogle').onclick = () => run('Waiting for Google… (finish signing in in the window that opened)', async (c) => { await c.signInGoogle(); }, false);
+    $('#authForgot').onclick = () => {
+      const email = $('#authEmail');
+      if (!email.value || !email.checkValidity()) { say('Enter your email above first.', true); email.focus(); return; }
+      run('Sending…', async (c) => {
+        await c.resetPassword(email.value.trim());
+        return `If ${email.value.trim()} has an account, an email with a link to choose a new password is on its way.`;
+      });
+    };
+    $('#dlgForm').onsubmit = (e) => {
+      const v = e.submitter?.value;
+      if (v !== 'ok' && v !== 'create') return;
+      e.preventDefault();
+      const email = $('#authEmail').value.trim(), pw = $('#authPw').value;
+      run(v === 'create' ? 'Creating your account…' : 'Signing in…', async (c) => {
+        await (v === 'create' ? c.createAccount(email, pw) : c.signIn(email, pw));
+      });
+    };
+  }
+
+  function accountDialog() {
+    const n = species.filter(isSeen).length, p = Object.keys(sync.pending).length;
+    dialog(`<h2>Your account</h2>
+      <p>Signed in as <b>${esc(sync.email)}</b>. Your list of ${fmt(n)} seen species is saved in your account and syncs to every device where you sign in.</p>
+      <p class="muted">${p ? `${fmt(p)} change${p === 1 ? '' : 's'} waiting to be saved${navigator.onLine ? '' : ' (offline)'}.` : syncError ? esc(syncError) : 'Everything is saved.'}</p>
+      <div class="actions"><button class="linkish danger" value="delete">Delete account…</button><span class="spacer"></span><button class="btn" value="signout">Sign out</button><button class="btn primary" value="cancel">Close</button></div>`);
+    $('#dlgForm').onsubmit = (e) => {
+      const v = e.submitter?.value;
+      if (v === 'signout') { e.preventDefault(); signOutFlow(); }
+      if (v === 'delete') { e.preventDefault(); deleteDialog(); }
+    };
+  }
+
+  async function signOutFlow() {
+    const p = Object.keys(sync.pending).length;
+    if (p && (await ask(`<h2>Sign out?</h2>
+      <p>${fmt(p)} change${p === 1 ? ' hasn’t' : 's haven’t'} reached your account yet${navigator.onLine ? '' : ' (you are offline)'}. ${p === 1 ? 'It stays' : 'They stay'} on this device, and you can add ${p === 1 ? 'it' : 'them'} to your account the next time you sign in.</p>
+      <div class="actions"><button class="btn" value="cancel">Cancel</button><button class="btn primary" value="ok">Sign out</button></div>`)) !== 'ok') return;
+    try {
+      await (cloud || (await startCloud())).signOut();
+      if ($('#dlg').open) $('#dlg').close();
+      toast('Signed out. Your list is still saved in your account, and this device keeps a copy.');
+    } catch (err) { toast(authMessage(err) || 'Could not sign out.'); }
+  }
+
+  function deleteDialog() {
+    const google = !!user?.google;
+    dialog(`<h2>Delete your account?</h2>
+      <p>This permanently deletes your account and the list saved in it. This device keeps its own copy of the list.</p>
+      ${google ? '<p class="muted">Google will ask you to confirm it’s you.</p>' : '<input type="password" id="delPw" placeholder="Your password" autocomplete="current-password" required>'}
+      <p class="auth-msg err" id="authMsg" role="status"></p>
+      <div class="actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn danger" value="ok">Delete account</button></div>`,
+    async (dlg) => {
+      if (!cloud || !user) return;
+      const me = user;
+      if (unwatch) { unwatch(); unwatch = null; } // so deleting the saved list doesn't empty this device's copy
+      try {
+        await cloud.deleteAccount(google ? undefined : $('#delPw').value);
+        dlg.close();
+        toast('Your account and the list saved in it are deleted. This device keeps its copy.');
+      } catch (err) {
+        $('#authMsg').textContent = authMessage(err) || 'The account was not deleted.';
+        // Start over as a first sign-in, which puts this device's list back if the saved one is gone.
+        sync.uid = null; saveSync();
+        if (user === me) onUser(me);
+      }
+    });
+  }
+
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-account]')) openAccount(); });
+  window.addEventListener('online', () => { renderSync(); scheduleFlush(100); });
+  window.addEventListener('offline', renderSync);
 
   // ---------- chat ----------
   // Talks to the local server's /api/chat (tools/chat.mjs), which streams
@@ -1084,7 +1403,7 @@
       ${location.protocol === 'file:' ? '<p>Installing needs the app to be opened from a web address: start <code>node tools/serve.mjs</code> and open http://localhost:5173, or use the hosted link.</p>' : ios
         ? '<p>In Safari, tap the <b>Share</b> button, then <b>Add to Home Screen</b>.</p>'
         : '<p>In Chrome or Edge, use the <b>Install</b> icon at the right end of the address bar, or the browser menu → <b>Install app</b> (on Android: ⋮ → <b>Add to Home screen</b>).</p>'}
-      <p>The installed app opens in its own window and works offline with the species you've looked at. Your checklist stays on this device; use Export for backups.</p>
+      <p>The installed app opens in its own window and works offline with the species you've looked at. ${FIREBASE ? 'Sign in there too, and your list syncs between your devices.' : 'Your checklist stays on this device; use Export for backups.'}</p>
       <div class="actions"><button class="btn primary" value="cancel">OK</button></div>`);
   }
   const offlineBar = () => { $('#offlineBar').hidden = navigator.onLine; };
@@ -1110,5 +1429,7 @@
   renderProgress();
   renderFamilies();
   render();
+  renderSync();
+  if (FIREBASE && sync.email) startCloud().catch((err) => { syncError = err.message; renderSync(); });
   detectServer().finally(route);
 })();

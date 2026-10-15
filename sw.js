@@ -4,15 +4,16 @@
 // - Photos and map tiles you have viewed are kept (cache first, capped).
 // - API answers (iNaturalist, GBIF, Wikipedia, OpenAlex) come from the network
 //   when online and from the last saved copy when offline.
-// - The local chat/summary API (/api/) is never cached.
-const VERSION = 'v1';
+// - The local chat/summary API (/api/) is never cached, and neither is account
+//   sign-in or sync (Firebase talks to Google's servers directly).
+const VERSION = 'v2';
 const SHELL = `shell-${VERSION}`;
 const MEDIA = 'media-v1';
 const TILES = 'tiles-v1';
 const DATA = 'data-v1';
 const LIMITS = { [MEDIA]: 800, [TILES]: 2500, [DATA]: 600 };
 const SHELL_FILES = [
-  './', 'index.html', 'app.js', 'styles.css', 'data/species.js', 'manifest.webmanifest',
+  './', 'index.html', 'app.js', 'styles.css', 'data/species.js', 'manifest.webmanifest', 'firebase-config.js', 'vendor/firebase/cloud.js',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png',
 ];
