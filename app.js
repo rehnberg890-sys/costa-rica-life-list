@@ -50,7 +50,10 @@
   const UNCONF_NOTE = {
     inat: 'Only unverified (needs-ID) iNaturalist observations from Costa Rica so far.',
     gbif: 'Known in Costa Rica only from GBIF records, such as museum specimens or survey data. It may be a rare visitor, a historical record, an outdated name or a misidentification.',
+    lit: 'Published research suggests it occurs in Costa Rica, but the record is contested or not yet confirmed.',
   };
+  // Species not taken from a field guide account: why they are on the list.
+  const ADD_TAG = { rg: 'Not in field guide', 'rg-hypothetical': 'Hypothetical in guide', research: 'Added from research' };
 
   // ---------- storage ----------
   const safeGet = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
@@ -163,6 +166,7 @@
     const t = [];
     if (s.ext) t.push('<span class="tag ext">Extinct</span>');
     if (s.u) t.push(`<span class="tag unconf" title="${esc(UNCONF_NOTE[s.u])}">Unconfirmed</span>`);
+    if (s.add) t.push(`<span class="tag added" title="${esc(s.note || '')}">${ADD_TAG[s.add]}</span>`);
     if (s.est === 'endemic') t.push('<span class="tag end">Endemic</span>');
     if (s.est === 'introduced') t.push('<span class="tag intro">Introduced</span>');
     if (s.iucn && !['LC', 'NE', 'DD'].includes(s.iucn)) t.push(`<span class="tag iucn-${s.iucn}" title="${IUCN_LABEL[s.iucn] || ''}">${s.iucn}</span>`);
@@ -405,8 +409,9 @@
           ${s.en ? `<span class="sn"><i>${esc(s.sci)}</i></span>` : ''}
           ${s.es ? `<span class="es">Español: ${esc(s.es)}</span>` : ''}
           <span class="tax">${[s.order, s.family && `${s.family}${s.familyEn ? ' (' + s.familyEn + ')' : ''}`].filter(Boolean).map(esc).join(' › ')}</span>
-          <div class="tags">${s.ext ? '<span class="tag ext">Extinct</span>' : ''}${s.u ? '<span class="tag unconf">Unconfirmed</span>' : ''}${est}${iucn}${s.list ? '<span class="tag">On iNat Costa Rica checklist</span>' : ''}</div>
+          <div class="tags">${s.ext ? '<span class="tag ext">Extinct</span>' : ''}${s.u ? '<span class="tag unconf">Unconfirmed</span>' : ''}${s.add ? `<span class="tag added">${ADD_TAG[s.add]}</span>` : ''}${est}${iucn}${s.list ? '<span class="tag">On iNat Costa Rica checklist</span>' : ''}</div>
           ${s.u ? `<p class="unconf-note">${esc(UNCONF_NOTE[s.u])}</p>` : ''}
+          ${s.note ? `<p class="list-note">${esc(s.note)}${s.ref ? ` <a href="${esc(s.ref.url)}" target="_blank" rel="noopener">${esc(s.ref.authors)}</a>` : ''}</p>` : ''}
           <div class="seen-box" id="seenBox"></div>
           <button class="btn ask-btn server-only" id="askAbout">Ask: where &amp; when to see it</button>
         </div>
@@ -826,9 +831,10 @@
     const g = DATA.groups.map((x) => `${x.label}: ${fmt(x.count)}`).join(' · ');
     dialog(`<h2>About the data</h2>
       <p><b>${fmt(species.length)} species</b> (${g}), built ${esc(DATA.generated)}.</p>
-      <p><b>Confirmed</b> species are on iNaturalist's Costa Rica checklist, have a research-grade iNaturalist observation in Costa Rica, or have an account in your field guides: Leenders, Henderson, or Dyer &amp; Howell (older book names are mapped to current ones).</p>
-      <p><b>Unconfirmed</b> species (${fmt(species.filter((s) => s.u).length)}) have only unverified iNaturalist observations, or are known in Costa Rica only from GBIF records and also recorded in Panama or Nicaragua. GBIF names that turned out to be older names for a listed species were merged. Turn on “Confirmed only” to leave them out of the list and the progress bars.</p>
-      <p>Species never seen in Costa Rica (no iNaturalist observation or field record) are left out when their known range lies elsewhere; introduced species are always kept. Domestic animals and hybrids are left out; extinct species are listed but not counted toward progress.</p>
+      <p><b>Birds</b> follow Dyer &amp; Howell, <i>Birds of Costa Rica</i> (2023), including its appendix of rare visitors and vagrants. Species the book lacks, or calls hypothetical, are added only with a research-grade iNaturalist observation in Costa Rica (${fmt(species.filter((s) => s.g === 'birds' && s.add).length)} species, tagged).</p>
+      <p><b>Amphibians and reptiles</b> follow Leenders' field guides (2016 and 2019), with names updated to current taxonomy, plus species described or first recorded in Costa Rica since then in peer-reviewed papers (${fmt(species.filter((s) => s.add === 'research').length)} species, tagged “Added from research”; each page cites the paper). Captive and escaped animals are not included.</p>
+      <p><b>Mammals</b> are species on iNaturalist's Costa Rica checklist, with a research-grade iNaturalist observation in Costa Rica, or in Henderson's guide.</p>
+      <p><b>Unconfirmed</b> species (${fmt(species.filter((s) => s.u).length)}) are counted unless you turn on “Confirmed only”: contested published records for amphibians and reptiles, and for mammals unverified iNaturalist observations or GBIF-only records. Domestic animals and hybrids are left out; extinct species are listed but not counted toward progress.</p>
       <p>Maps use live iNaturalist range, model and observation tiles and GBIF occurrence tiles. Photos are from iNaturalist users under their stated licenses.</p>
       <p>${sync.email ? `Your checklist is saved in this browser and in your account (${esc(sync.email)}).` : `Your checklist is stored in this browser only${FIREBASE ? '; sign in to keep it in an account' : ''}. Use “Export checklist” for backups.`}</p>
       <div class="actions"><button class="btn primary" value="cancel">Close</button></div>`);
