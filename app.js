@@ -51,6 +51,7 @@
     inat: 'Only unverified (needs-ID) iNaturalist observations from Costa Rica so far.',
     gbif: 'Known in Costa Rica only from GBIF records, such as museum specimens or survey data. It may be a rare visitor, a historical record, an outdated name or a misidentification.',
     lit: 'Published research suggests it occurs in Costa Rica, but the record is contested or not yet confirmed.',
+    guide: 'In the field guide because it very likely occurs, but not yet recorded in Costa Rica.',
   };
   // Species not taken from a field guide account: why they are on the list.
   const ADD_TAG = { rg: 'Not in field guide', 'rg-hypothetical': 'Hypothetical in guide', research: 'Added from research' };
