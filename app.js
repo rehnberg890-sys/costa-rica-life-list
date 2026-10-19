@@ -403,7 +403,7 @@
 
     $('#detailBody').innerHTML = `
       <div class="d-hero" style="--bar:${color}">
-        <figure class="d-photo" style="margin:0">${big ? `<img src="${esc(big)}"${corsAttr(big)} alt="${esc(s.en || s.sci)}"><figcaption>${s.photoKind === 'specimen' ? 'Museum specimen · ' : ''}${esc(s.attr || '')}${s.photoLink ? ` · <a href="${esc(s.photoLink)}" target="_blank" rel="noopener">source</a>` : ''}</figcaption>` : '<div class="muted" style="padding:40px">No public photo found yet</div>'}</figure>
+        <figure class="d-photo" style="margin:0">${big ? `<img src="${esc(big)}"${corsAttr(big)} alt="${esc(s.en || s.sci)}"><figcaption>${s.photoKind === 'specimen' ? 'Museum specimen · ' : ''}${esc(s.attr || '')}${s.photoLink ? ` · <a href="${esc(s.photoLink)}" target="_blank" rel="noopener">source</a>` : ''}</figcaption>` : `<div class="muted" style="padding:40px">No public photo found yet${s.seeLink ? `<br><a href="${esc(s.seeLink.url)}" target="_blank" rel="noopener">${esc(s.seeLink.label)}</a>` : ''}</div>`}</figure>
         <div class="d-head">
           <span class="grp">${esc(groupLabel)}</span>
           <h2 id="dTitle">${esc(s.en || s.sci)}</h2>
