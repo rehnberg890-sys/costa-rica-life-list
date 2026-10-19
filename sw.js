@@ -6,7 +6,7 @@
 //   when online and from the last saved copy when offline.
 // - The local chat/summary API (/api/) is never cached, and neither is account
 //   sign-in or sync (Firebase talks to Google's servers directly).
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL = `shell-${VERSION}`;
 const MEDIA = 'media-v1';
 const TILES = 'tiles-v1';
