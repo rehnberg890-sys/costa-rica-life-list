@@ -17,6 +17,7 @@
   --mammals: #b4632a;
   --reptiles: #6f8f1e;
   --amphibians: #0d9488;
+  --mushrooms: #8b5cf6;
   --shadow: 0 1px 2px rgb(20 30 15 / 6%), 0 4px 14px rgb(20 30 15 / 6%);
   --radius: 12px;
   color-scheme: light;
@@ -103,7 +104,7 @@ i.sci, .sci { font-style: italic; }
 .bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
 .bar.big { height: 16px; }
 .bar > span { display: block; height: 100%; width: 0; background: var(--bar, var(--brand)); border-radius: inherit; transition: width .4s ease; }
-.groups { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.groups { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .gtab {
   text-align: left; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line);
   background: var(--surface); display: grid; gap: 6px;
@@ -167,6 +168,9 @@ i.sci, .sci { font-style: italic; }
 .tag.iucn-LC { background: #e3f0df; color: #2f6b31; }
 .tag.ext { background: #2b2b2b; color: #fff; }
 .tag.unconf { background: transparent; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--ink-3); border-radius: 6px; }
+.tag.ed-choice, .tag.ed-edible, .tag.ed-cooked { background: color-mix(in srgb, var(--mushrooms) 14%, var(--surface)); color: var(--mushrooms); }
+.tag.ed-caution { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--danger); }
+.mushroom-warning { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; font-size: 14px; background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent); color: var(--ink); }
 .tag.added { background: transparent; color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); border-radius: 6px; }
 .list-note { margin: 0; font-size: 13px; color: var(--ink-2); padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
 .unconf-note { margin: 0; font-size: 13px; color: var(--ink-2); padding: 8px 10px; border-radius: 8px; border: 1px dashed var(--ink-3); }

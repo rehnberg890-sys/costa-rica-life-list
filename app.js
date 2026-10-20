@@ -9,8 +9,8 @@
   const PAGE = 150;
   const THREAT = new Set(['VU', 'EN', 'CR', 'EW']);
   const IUCN_LABEL = { LC: 'Least concern', NT: 'Near threatened', VU: 'Vulnerable', EN: 'Endangered', CR: 'Critically endangered', EW: 'Extinct in the wild', EX: 'Extinct', DD: 'Data deficient', NE: 'Not evaluated' };
-  const GROUP_VAR = { birds: 'var(--birds)', mammals: 'var(--mammals)', reptiles: 'var(--reptiles)', amphibians: 'var(--amphibians)', all: 'var(--brand)' };
-  const GROUP_SINGULAR = { birds: 'Bird', mammals: 'Mammal', reptiles: 'Reptile', amphibians: 'Amphibian' };
+  const GROUP_VAR = { birds: 'var(--birds)', mammals: 'var(--mammals)', reptiles: 'var(--reptiles)', amphibians: 'var(--amphibians)', mushrooms: 'var(--mushrooms)', all: 'var(--brand)' };
+  const GROUP_SINGULAR = { birds: 'Bird', mammals: 'Mammal', reptiles: 'Reptile', amphibians: 'Amphibian', mushrooms: 'Mushroom' };
   const BOOK_NAME = DATA.books;
   // Simple outline icons shown in place of a photo.
   const icon = (d) => `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -18,6 +18,7 @@
     birds: icon('M12 38c6-2 10-8 14-14 3-5 9-8 15-6 4 1 7 4 8 8l7 2-7 3c-1 8-8 15-18 16l-6 7-2-7c-5-1-9-4-11-9z M42 26h.1'),
     mammals: icon('M14 44c0-10 8-18 18-18h8l4-8 4 2-2 8c4 3 6 8 6 13v9h-6v-6H24v6h-6v-6c-2 0-4-1-4-0z M12 30c-3-1-4-4-3-7'),
     reptiles: icon('M8 40c6-6 12-6 18 0s12 6 18 0 10-6 14-2c2 2 2 5-1 6-3 1-5-2-8 0-6 6-12 6-18 0s-12-6-18 0z M52 38l4-2'),
+    mushrooms: icon('M10 34c0-12 10-20 22-20s22 8 22 20z M26 34v14c0 3 3 5 6 5s6-2 6-5V34'),
     amphibians: icon('M20 30c0-7 5-12 12-12s12 5 12 12c0 3-1 5-3 7l6 9-5 2-6-7c-3 1-5 1-8 0l-6 7-5-2 6-9c-2-2-3-4-3-7z M26 24a2 2 0 1 0 .1 0 M38 24a2 2 0 1 0 .1 0'),
   };
   const TICK_SVG ='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
@@ -53,6 +54,21 @@
     lit: 'Published research suggests it occurs in Costa Rica, but the record is contested or not yet confirmed.',
     guide: 'In the field guide because it very likely occurs, but not yet recorded in Costa Rica.',
   };
+  // Edible mushrooms: how Wikidata (from Wikipedia's mushroom infoboxes) rates them.
+  const EDIBLE_TAG = { choice: 'Choice edible', edible: 'Edible', cooked: 'Edible when cooked', caution: 'Caution: conflicting reports' };
+  function edibilityHtml(s) {
+    const e = s.ed;
+    const detail = {
+      choice: 'Rated a choice (highly regarded) edible.',
+      edible: 'Rated edible.',
+      cooked: 'Rated edible only when cooked.',
+      caution: `Rated edible, but also recorded as ${(e.warnings || []).join(' and ')}. Treat it as not safe to eat.`,
+    }[e.c];
+    return `<div class="d-sec"><h3>Edibility</h3>
+      <p class="mushroom-warning"><b>Never eat a wild mushroom identified with this app.</b> Many edible species have deadly look-alikes, and edibility can vary by region, preparation and person. Only eat mushrooms an expert has identified in hand.</p>
+      <p><span class="tag ed-${e.c}">${EDIBLE_TAG[e.c]}</span> ${esc(detail)}${e.cooked && e.c !== 'cooked' ? ' Some sources say to eat it only cooked.' : ''}${e.alsoInedible ? ' Some sources call it inedible (tough or bitter).' : ''}</p>
+      <p class="muted">Edibility from <a href="https://www.wikidata.org/wiki/${esc(e.wikidata)}" target="_blank" rel="noopener">Wikidata</a>, which takes it from Wikipedia's mushroom pages.</p></div>`;
+  }
   // Species not taken from a field guide account: why they are on the list.
   const ADD_TAG = { rg: 'Not in field guide', 'rg-hypothetical': 'Hypothetical in guide', research: 'Added from research' };
 
@@ -167,6 +183,7 @@
     const t = [];
     if (s.ext) t.push('<span class="tag ext">Extinct</span>');
     if (s.u) t.push(`<span class="tag unconf" title="${esc(UNCONF_NOTE[s.u])}">Unconfirmed</span>`);
+    if (s.ed) t.push(`<span class="tag ed-${s.ed.c}">${EDIBLE_TAG[s.ed.c]}</span>`);
     if (s.add) t.push(`<span class="tag added" title="${esc(s.note || '')}">${ADD_TAG[s.add]}</span>`);
     if (s.est === 'endemic') t.push('<span class="tag end">Endemic</span>');
     if (s.est === 'introduced') t.push('<span class="tag intro">Introduced</span>');
@@ -410,7 +427,7 @@
           ${s.en ? `<span class="sn"><i>${esc(s.sci)}</i></span>` : ''}
           ${s.es ? `<span class="es">Español: ${esc(s.es)}</span>` : ''}
           <span class="tax">${[s.order, s.family && `${s.family}${s.familyEn ? ' (' + s.familyEn + ')' : ''}`].filter(Boolean).map(esc).join(' › ')}</span>
-          <div class="tags">${s.ext ? '<span class="tag ext">Extinct</span>' : ''}${s.u ? '<span class="tag unconf">Unconfirmed</span>' : ''}${s.add ? `<span class="tag added">${ADD_TAG[s.add]}</span>` : ''}${est}${iucn}${s.list ? '<span class="tag">On iNat Costa Rica checklist</span>' : ''}</div>
+          <div class="tags">${s.ext ? '<span class="tag ext">Extinct</span>' : ''}${s.u ? '<span class="tag unconf">Unconfirmed</span>' : ''}${s.ed ? `<span class="tag ed-${s.ed.c}">${EDIBLE_TAG[s.ed.c]}</span>` : ''}${s.add ? `<span class="tag added">${ADD_TAG[s.add]}</span>` : ''}${est}${iucn}${s.list ? '<span class="tag">On iNat Costa Rica checklist</span>' : ''}</div>
           ${s.u ? `<p class="unconf-note">${esc(UNCONF_NOTE[s.u])}</p>` : ''}
           ${s.note ? `<p class="list-note">${esc(s.note)}${s.ref ? ` <a href="${esc(s.ref.url)}" target="_blank" rel="noopener">${esc(s.ref.authors)}</a>` : ''}</p>` : ''}
           <div class="seen-box" id="seenBox"></div>
@@ -426,7 +443,7 @@
         </div>
       </div>
       <div class="d-sec server-only"><h3>Field guide summary</h3><div id="summaryBody"><span class="muted">Checking…</span></div></div>
-      ${factsHtml(s)}
+      ${s.ed ? edibilityHtml(s) : factsHtml(s)}
       <div class="d-sec"><h3>Description</h3><div id="descBody" class="prose"><span class="muted">Loading…</span></div></div>
       <div class="d-sec"><h3>When &amp; where to look</h3><div id="whenWhere"><span class="muted">Loading…</span></div></div>
       <div class="d-sec">
@@ -834,6 +851,7 @@
       <p><b>${fmt(species.length)} species</b> (${g}), built ${esc(DATA.generated)}.</p>
       <p><b>Birds</b> follow Dyer &amp; Howell, <i>Birds of Costa Rica</i> (2023), including its appendix of rare visitors and vagrants. Species the book lacks, or calls hypothetical, are added only with a research-grade iNaturalist observation in Costa Rica (${fmt(species.filter((s) => s.g === 'birds' && s.add).length)} species, tagged).</p>
       <p><b>Amphibians and reptiles</b> follow Leenders' field guides (2016 and 2019), with names updated to current taxonomy, plus species described or first recorded in Costa Rica since then in peer-reviewed papers (${fmt(species.filter((s) => s.add === 'research').length)} species, tagged “Added from research”; each page cites the paper). Captive and escaped animals are not included.</p>
+      <p><b>Edible mushrooms</b> are fungi with a research-grade iNaturalist observation in Costa Rica that Wikidata (from Wikipedia's mushroom pages) lists as edible. Species also recorded as poisonous or psychoactive are marked “Caution”, and a few species wrongly listed as edible, such as earthballs and the false morel, are left out. Never eat a wild mushroom based on this app.</p>
       <p><b>Mammals</b> are species on iNaturalist's Costa Rica checklist, with a research-grade iNaturalist observation in Costa Rica, or in Henderson's guide.</p>
       <p><b>Unconfirmed</b> species (${fmt(species.filter((s) => s.u).length)}) are counted unless you turn on “Confirmed only”: contested published records for amphibians and reptiles, and for mammals unverified iNaturalist observations or GBIF-only records. Domestic animals and hybrids are left out; extinct species are listed but not counted toward progress.</p>
       <p>Maps use live iNaturalist range, model and observation tiles and GBIF occurrence tiles. Photos are from iNaturalist users under their stated licenses.</p>
