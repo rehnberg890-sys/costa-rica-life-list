@@ -66,7 +66,7 @@
     }[e.c];
     return `<div class="d-sec"><h3>Edibility</h3>
       <p class="mushroom-warning"><b>Never eat a wild mushroom identified with this app.</b> Many edible species have deadly look-alikes, and edibility can vary by region, preparation and person. Only eat mushrooms an expert has identified in hand.</p>
-      <p><span class="tag ed-${e.c}">${EDIBLE_TAG[e.c]}</span> ${esc(detail)}${e.cooked && e.c !== 'cooked' ? ' Some sources say to eat it only cooked.' : ''}${e.alsoInedible ? ' Some sources call it inedible (tough or bitter).' : ''}</p>
+      <p><span class="tag ed-${e.c}">${EDIBLE_TAG[e.c]}</span> <span>${esc(detail)}</span>${e.cooked && e.c !== 'cooked' ? ' <span>Some sources say to eat it only cooked.</span>' : ''}${e.alsoInedible ? ' <span>Some sources call it inedible (tough or bitter).</span>' : ''}</p>
       <p class="muted">Edibility from <a href="https://www.wikidata.org/wiki/${esc(e.wikidata)}" target="_blank" rel="noopener">Wikidata</a>, which takes it from Wikipedia's mushroom pages.</p></div>`;
   }
   // Species not taken from a field guide account: why they are on the list.
@@ -81,10 +81,144 @@
     queueCloudChanges();
   };
 
-  const ui = Object.assign({ group: 'all', seen: 'all', family: '', genus: '', sort: 'tax', view: 'grid', flags: [] }, safeGet(UI_STORE) || {});
+  const ui = Object.assign({ group: 'all', seen: 'all', family: '', genus: '', sort: 'tax', view: 'grid', flags: [], lang: 'en', loc: null }, safeGet(UI_STORE) || {});
   ui.flags = new Set(ui.flags);
   ui.q = '';
+  if (ui.sort === 'near') ui.sort = 'tax'; // needs a location search, which starts empty
   const saveUi = () => safeSet(UI_STORE, { ...ui, flags: [...ui.flags], q: undefined });
+
+  // ---------- language (English / Spanish) ----------
+  // Spanish swaps the common names for the Spanish ones and translates the
+  // interface text. Text is matched exactly (or by pattern) as it reaches the
+  // page, so new text only needs an entry here. Descriptions, summaries and chat
+  // answers come from other sources and stay as they are.
+  const ES_ON = ui.lang === 'es';
+  const dn = (s) => (ES_ON && s.es) || s.en || s.sci;
+  const ES = {
+    'Costa Rica Life List': 'Lista de vida de Costa Rica',
+    'Birds · Mammals · Reptiles · Amphibians': 'Aves · Mamíferos · Reptiles · Anfibios',
+    'Search species, family or Spanish name…': 'Buscar especie, familia o nombre…',
+    'Search species': 'Buscar especies', 'Search by location': 'Buscar por ubicación',
+    'My list ▾': 'Mi lista ▾', 'Sign in to save your list…': 'Inicia sesión para guardar tu lista…', 'Install app…': 'Instalar la app…',
+    'Import seen species from iNaturalist…': 'Importar especies vistas desde iNaturalist…',
+    'Export checklist (JSON backup)': 'Exportar lista (copia JSON)', 'Export seen species (CSV)': 'Exportar especies vistas (CSV)',
+    'Import checklist backup…': 'Importar copia de la lista…', 'About the data': 'Acerca de los datos', 'Clear all marks…': 'Borrar todas las marcas…',
+    'Offline: showing saved data. Your checkmarks still save.': 'Sin conexión: se muestran datos guardados. Tus marcas se siguen guardando.',
+    'Checklist progress': 'Progreso de la lista', 'Species seen': 'Especies vistas', 'Confirmed species seen': 'Especies confirmadas vistas',
+    'Animal groups': 'Grupos de animales', 'All groups': 'Todos los grupos',
+    'Birds': 'Aves', 'Mammals': 'Mamíferos', 'Reptiles': 'Reptiles', 'Amphibians': 'Anfibios', 'Edible mushrooms': 'Hongos comestibles',
+    'Seen filter': 'Filtro de vistas', 'All': 'Todas', 'Not seen': 'No vistas', 'Seen': 'Vistas',
+    'All families': 'Todas las familias', 'Family': 'Familia', 'Genus': 'Género', 'Sort': 'Ordenar',
+    'Taxonomic (by family)': 'Taxonómico (por familia)', 'Family A–Z': 'Familia A–Z', 'Common name A–Z': 'Nombre común A–Z',
+    'Scientific name A–Z': 'Nombre científico A–Z', 'Most observed in CR': 'Más observadas en CR', 'Least observed in CR': 'Menos observadas en CR',
+    'Recently marked seen': 'Marcadas hace poco', 'Most observed in this area': 'Más observadas en esta zona',
+    'Filters': 'Filtros', 'Endemic': 'Endémica', 'Threatened': 'Amenazada', 'In my field guides': 'En mis guías', 'Native only': 'Solo nativas',
+    'Confirmed only': 'Solo confirmadas', 'Hide introduced species': 'Ocultar especies introducidas',
+    'Hide unconfirmed species from the list and the progress bars': 'Ocultar especies sin confirmar de la lista y del progreso',
+    'View': 'Vista', 'Photo grid': 'Cuadrícula de fotos', 'Checklist rows': 'Filas de lista',
+    'No species match these filters.': 'Ninguna especie coincide con estos filtros.',
+    'No public photo': 'Sin foto pública', 'Museum specimen': 'Espécimen de museo',
+    'Extinct': 'Extinta', 'Unconfirmed': 'Sin confirmar', 'Introduced': 'Introducida',
+    'Choice edible': 'Comestible excelente', 'Edible': 'Comestible', 'Edible when cooked': 'Comestible cocinado', 'Caution: conflicting reports': 'Precaución: datos contradictorios',
+    'Not in field guide': 'No está en la guía', 'Hypothetical in guide': 'Hipotética en la guía', 'Added from research': 'Añadida por investigación',
+    'Least concern': 'Preocupación menor', 'Near threatened': 'Casi amenazada', 'Vulnerable': 'Vulnerable', 'Endangered': 'En peligro',
+    'Critically endangered': 'En peligro crítico', 'Extinct in the wild': 'Extinta en estado silvestre', 'Data deficient': 'Datos insuficientes', 'Not evaluated': 'No evaluada',
+    'Bird': 'Ave', 'Mammal': 'Mamífero', 'Reptile': 'Reptil', 'Amphibian': 'Anfibio', 'Mushroom': 'Hongo',
+    'Only unverified (needs-ID) iNaturalist observations from Costa Rica so far.': 'Hasta ahora solo hay observaciones de iNaturalist sin verificar (necesitan identificación) de Costa Rica.',
+    'Known in Costa Rica only from GBIF records, such as museum specimens or survey data. It may be a rare visitor, a historical record, an outdated name or a misidentification.': 'Se conoce en Costa Rica solo por registros de GBIF, como especímenes de museo o datos de muestreos. Puede ser un visitante raro, un registro histórico, un nombre desactualizado o una identificación errónea.',
+    'Published research suggests it occurs in Costa Rica, but the record is contested or not yet confirmed.': 'La investigación publicada sugiere que está en Costa Rica, pero el registro es discutido o aún no está confirmado.',
+    'In the field guide because it very likely occurs, but not yet recorded in Costa Rica.': 'Está en la guía porque es muy probable que ocurra, pero aún no hay registros en Costa Rica.',
+    // detail page
+    'Close': 'Cerrar', 'Species details': 'Detalles de la especie', 'Mark as seen': 'Marcar como vista',
+    'Date seen': 'Fecha de avistamiento', 'Notes': 'Notas', 'Where / notes': 'Dónde / notas',
+    'Imported from your iNaturalist observations.': 'Importada desde tus observaciones de iNaturalist.',
+    'Ask: where & when to see it': 'Preguntar: dónde y cuándo verla',
+    'iNat observations in CR': 'Observaciones en iNat (CR)', 'research grade': 'grado de investigación',
+    'GBIF records in CR': 'Registros GBIF (CR)', 'iNat observations worldwide': 'Observaciones en iNat (mundo)',
+    'Field guide summary': 'Resumen de la guía', 'Field guide facts': 'Datos de la guía de campo', 'Checking…': 'Revisando…', 'Loading…': 'Cargando…',
+    'Description': 'Descripción', 'When & where to look': 'Cuándo y dónde buscarla', 'Range & records': 'Distribución y registros',
+    'Research': 'Investigación', 'Recent photos from Costa Rica': 'Fotos recientes de Costa Rica', 'Links': 'Enlaces', 'Edibility': 'Comestibilidad',
+    'Loading map layers…': 'Cargando capas del mapa…', 'Known range': 'Distribución conocida', 'Expected range (iNat model)': 'Distribución esperada (modelo iNat)',
+    'iNat observations': 'Observaciones iNat', 'GBIF records': 'Registros GBIF',
+    'Size': 'Tamaño', 'Wingspan': 'Envergadura', 'Weight': 'Peso', 'Abundance': 'Abundancia', 'Season in Costa Rica': 'Época en Costa Rica',
+    'Where in Costa Rica': 'Dónde en Costa Rica', 'Elevation': 'Elevación', 'Habitat': 'Hábitat', 'Activity': 'Actividad', 'Diet': 'Dieta', 'World range': 'Distribución mundial',
+    'Sea level': 'Nivel del mar', 'Dangerously venomous.': 'Muy venenosa.', 'Keep your distance and never handle it.': 'Mantén la distancia y nunca la manipules.',
+    'Not covered in your field guides.': 'No está en tus guías de campo.',
+    'No structured facts could be read from the guide for this species.': 'No se pudieron leer datos estructurados de la guía para esta especie.',
+    'Never eat a wild mushroom identified with this app.': 'Nunca comas un hongo silvestre identificado con esta app.',
+    'Many edible species have deadly look-alikes, and edibility can vary by region, preparation and person. Only eat mushrooms an expert has identified in hand.': 'Muchas especies comestibles tienen parecidos mortales, y la comestibilidad puede variar según la región, la preparación y la persona. Come solo hongos que un experto haya identificado en persona.',
+    'Rated a choice (highly regarded) edible.': 'Clasificado como comestible excelente (muy apreciado).', 'Rated edible.': 'Clasificado como comestible.',
+    'Rated edible only when cooked.': 'Clasificado como comestible solo cocinado.', 'Some sources say to eat it only cooked.': 'Algunas fuentes dicen que solo se coma cocinado.',
+    'Some sources call it inedible (tough or bitter).': 'Algunas fuentes lo consideran no comestible (duro o amargo).',
+    'No public photo found yet': 'Aún no hay foto pública', 'source': 'fuente',
+    'This species has no iNaturalist taxon.': 'Esta especie no tiene taxón en iNaturalist.',
+    'No photographed observations from Costa Rica yet — yours could be the first!': 'Aún no hay observaciones con foto de Costa Rica. ¡La tuya podría ser la primera!',
+    'Could not load observations (offline?).': 'No se pudieron cargar las observaciones (¿sin conexión?).',
+    'iNaturalist taxon': 'Taxón en iNaturalist', 'GBIF species': 'Especie en GBIF', 'Wikipedia': 'Wikipedia', 'Calls on xeno-canto': 'Cantos en xeno-canto',
+    'Image search': 'Búsqueda de imágenes', 'On iNat Costa Rica checklist': 'En la lista de iNat Costa Rica',
+    // chat
+    'Ask': 'Preguntar', 'Ask the field guide': 'Pregunta a la guía de campo', 'Answers from iNaturalist, GBIF and your field guides': 'Respuestas de iNaturalist, GBIF y tus guías de campo',
+    'New': 'Nueva', 'Send': 'Enviar', 'Your question': 'Tu pregunta', 'Wildlife assistant': 'Asistente de fauna',
+    'e.g. Best place and time to see a Resplendent Quetzal?': 'p. ej. ¿Mejor lugar y época para ver un quetzal?',
+    // location
+    'Place name': 'Nombre del lugar', 'Search a place in Costa Rica…': 'Buscar un lugar en Costa Rica…', 'Find': 'Buscar', 'Use my location': 'Usar mi ubicación',
+    'Radius': 'Radio', 'Radius in kilometres': 'Radio en kilómetros', 'Tap the map to place the centre of your search area.': 'Toca el mapa para fijar el centro del área de búsqueda.',
+    'Show species seen here': 'Mostrar especies vistas aquí', 'Clear': 'Quitar', 'Clear location': 'Quitar ubicación',
+    'Species come from iNaturalist observations inside the circle. Place search uses OpenStreetMap Nominatim.': 'Las especies salen de observaciones de iNaturalist dentro del círculo. La búsqueda de lugares usa OpenStreetMap Nominatim.',
+    'Searching…': 'Buscando…', 'No places found.': 'No se encontraron lugares.', 'Could not search places (offline?).': 'No se pudo buscar lugares (¿sin conexión?).',
+    'Your browser could not get your location.': 'Tu navegador no pudo obtener tu ubicación.',
+    'Could not load species for this area (offline?).': 'No se pudieron cargar las especies de esta zona (¿sin conexión?).',
+    'Saved on this device only.': 'Guardado solo en este dispositivo.', 'Sign in': 'Inicia sesión', 'to keep your list in an account.': 'para conservar tu lista en una cuenta.', 'Connecting to your account…': 'Conectando con tu cuenta…', 'Saving to your account…': 'Guardando en tu cuenta…', 'Saved to your account': 'Guardado en tu cuenta', 'Account and sync…': 'Cuenta y sincronización…', 'Offline. Changes will be saved to your account when you’re back online.': 'Sin conexión. Los cambios se guardarán en tu cuenta cuando vuelvas a estar en línea.',
+    'Loading species for this area…': 'Cargando especies de esta zona…', 'My location': 'Mi ubicación',
+  };
+  const WARN_ES = { poisonous: 'venenoso', deadly: 'mortal', psychoactive: 'psicoactivo', allergenic: 'alergénico', caution: 'de precaución' };
+  const ES_RULES = [
+    [/^([\d,]+) species · ([\d,]+) seen(?: · matching “(.*)”)?$/, (m, a, b, q) => `${a} especies · ${b} vistas${q ? ` · coinciden con “${q}”` : ''}`],
+    [/^([\d,]+) of ([\d,]+) seen$/, (m, a, b) => `${a} de ${b} vistas`],
+    [/^All genera \((\d+)\)$/, (m, n) => `Todos los géneros (${n})`],
+    [/^seen (\S+)$/, (m, d) => `vista ${d}`],
+    [/^([\d,]+) obs$/, (m, n) => `${n} obs.`],
+    [/^([\d,]+) obs nearby$/, (m, n) => `${n} obs. cerca`],
+    [/^(Unmark|Mark) (.*) as seen$/, (m, a, n) => `${a === 'Mark' ? 'Marcar' : 'Desmarcar'} ${n} como vista`],
+    [/^IUCN: (.*)$/, (m, v) => `UICN: ${ES[v] || v}`],
+    [/^(Endemic|Native|Introduced) in Costa Rica$/, (m, v) => `${{ Endemic: 'Endémica', Native: 'Nativa', Introduced: 'Introducida' }[v]} en Costa Rica`],
+    [/^English: (.*)$/, (m, v) => `Inglés: ${v}`],
+    [/^Rated edible, but also recorded as (.*)\. Treat it as not safe to eat\.$/, (m, w) =>
+      `Clasificado como comestible, pero también registrado como ${w.split(' and ').map((x) => WARN_ES[x] || x).join(' y ')}. Considéralo no seguro para comer.`],
+    [/^Area search: (.*) · (\d+) km · ([\d,]+) species$/, (m, p, r, n) => `Área: ${p} · ${r} km · ${n} especies`],
+    [/^(\d+) km$/, (m, r) => `${r} km`],
+  ];
+  const esT = (txt) => {
+    if (ES[txt] !== undefined) return ES[txt];
+    for (const [re, fn] of ES_RULES) { const m = re.exec(txt); if (m) return fn(...m); }
+    return txt;
+  };
+  const t = (txt) => (ES_ON ? esT(txt) : txt);
+  const ES_ATTRS = ['placeholder', 'title', 'aria-label'];
+  function translateTree(root) {
+    if (root.nodeType === 3) {
+      const raw = root.nodeValue, txt = raw.trim(), out = txt && esT(txt);
+      if (out && out !== txt) root.nodeValue = raw.replace(txt, () => out);
+      return;
+    }
+    if (root.nodeType !== 1 || /^(SCRIPT|STYLE)$/.test(root.tagName)) return;
+    for (const el of [root, ...root.querySelectorAll('[placeholder],[title],[aria-label]')]) {
+      for (const a of ES_ATTRS) { const v = el.getAttribute(a); if (v && esT(v) !== v) el.setAttribute(a, esT(v)); }
+    }
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n; (n = w.nextNode());) {
+      if (n.parentElement && /^(SCRIPT|STYLE|TEXTAREA)$/.test(n.parentElement.tagName)) continue;
+      translateTree(n);
+    }
+  }
+  if (ES_ON) {
+    document.documentElement.lang = 'es';
+    translateTree(document.body);
+    new MutationObserver((muts) => muts.forEach((m) => m.addedNodes.forEach(translateTree))).observe(document.body, { childList: true, subtree: true });
+  }
+  $('#langBtn').textContent = ES_ON ? 'EN' : 'ES';
+  $('#langBtn').title = ES_ON ? 'Switch to English' : 'Cambiar a español';
+  $('#langBtn').addEventListener('click', () => { ui.lang = ES_ON ? 'en' : 'es'; saveUi(); location.reload(); });
 
   const isSeen = (s) => !!checklist[s.id];
   function setSeen(s, on, extra = {}) {
@@ -133,9 +267,11 @@
       if (ui.flags.has('book') && !s.books.length) return false;
       if (ui.flags.has('native') && s.est === 'introduced') return false;
       if (ui.flags.has('confirmed') && s.u) return false;
+      if (area.ids && !area.ids.has(s.inat)) return false;
       return words.every((w) => s._q.includes(w));
     });
-    const name = (s) => (s.en || s.sci).toLowerCase();
+    const name = (s) => dn(s).toLowerCase();
+    const near = (s) => area.counts?.get(s.inat) || 0;
     const sorters = {
       tax: (a, b) => a._i - b._i,
       family: (a, b) => (a.family || '~').localeCompare(b.family || '~') || a.g.localeCompare(b.g) || a._i - b._i,
@@ -144,6 +280,7 @@
       obs: (a, b) => b.obs - a.obs || b.gbifN - a.gbifN,
       rare: (a, b) => a.obs - b.obs || a.gbifN - b.gbifN,
       recent: (a, b) => (checklist[b.id]?.t || 0) - (checklist[a.id]?.t || 0) || a._i - b._i,
+      near: (a, b) => near(b) - near(a) || a._i - b._i,
     };
     return list.sort(sorters[ui.sort] || sorters.tax);
   }
@@ -190,15 +327,17 @@
     if (s.iucn && !['LC', 'NE', 'DD'].includes(s.iucn)) t.push(`<span class="tag iucn-${s.iucn}" title="${IUCN_LABEL[s.iucn] || ''}">${s.iucn}</span>`);
     return t.join('');
   }
+  const nearHtml = (s) => (area.counts ? `<span class="near">${fmt(area.counts.get(s.inat) || 0)} obs nearby</span>` : '');
   function cardHtml(s) {
     const img = photoSize(s.photo, 'medium');
     return `<div class="card ${isSeen(s) ? 'seen' : ''}" data-id="${s.id}" tabindex="0">
       <div class="ph">${img ? `<img loading="lazy" src="${esc(img)}"${corsAttr(img)} alt="">` : `<span class="noimg">${GROUP_ICON[s.g]}<span>No public photo</span></span>`}${s.photoKind === 'specimen' ? '<span class="ph-kind">Museum specimen</span>' : ''}</div>
-      <button class="tick" data-tick aria-pressed="${isSeen(s)}" aria-label="${isSeen(s) ? 'Unmark' : 'Mark'} ${esc(s.en || s.sci)} as seen">${TICK_SVG}</button>
+      <button class="tick" data-tick aria-pressed="${isSeen(s)}" aria-label="${isSeen(s) ? 'Unmark' : 'Mark'} ${esc(dn(s))} as seen">${TICK_SVG}</button>
       <div class="meta">
-        <span class="en">${esc(s.en || s.sci)}</span>
-        ${s.en ? `<span class="sn">${esc(s.sci)}</span>` : ''}
+        <span class="en">${esc(dn(s))}</span>
+        ${dn(s) !== s.sci ? `<span class="sn">${esc(s.sci)}</span>` : ''}
         <span class="fam">${esc(s.familyEn || s.family || '')}</span>
+        ${nearHtml(s)}
         <div class="tags">${tags(s)}</div>
       </div>
     </div>`;
@@ -206,9 +345,9 @@
   function rowHtml(s) {
     const img = photoSize(s.photo, 'square');
     return `<div class="row ${isSeen(s) ? 'seen' : ''}" data-id="${s.id}" tabindex="0">
-      <button class="box" data-tick aria-pressed="${isSeen(s)}" aria-label="${isSeen(s) ? 'Unmark' : 'Mark'} ${esc(s.en || s.sci)} as seen">${TICK_SVG}</button>
+      <button class="box" data-tick aria-pressed="${isSeen(s)}" aria-label="${isSeen(s) ? 'Unmark' : 'Mark'} ${esc(dn(s))} as seen">${TICK_SVG}</button>
       ${img ? `<img loading="lazy" src="${esc(img)}"${corsAttr(img)} alt="">` : `<span class="noimg">${GROUP_ICON[s.g]}</span>`}
-      <div class="names"><span class="en">${esc(s.en || s.sci)}</span>${s.en ? `<span class="sn">${esc(s.sci)}</span>` : ''} ${tags(s)}</div>
+      <div class="names"><span class="en">${esc(dn(s))}</span>${dn(s) !== s.sci ? `<span class="sn">${esc(s.sci)}</span>` : ''} ${tags(s)}</div>
       <div class="right">${checklist[s.id]?.d ? `<span>seen ${esc(checklist[s.id].d)}</span>` : ''}<span title="iNaturalist observations in Costa Rica">${fmt(s.obs)} obs</span></div>
     </div>`;
   }
@@ -277,7 +416,7 @@
     $$(`[data-id="${CSS.escape(s.id)}"]`).forEach((el) => {
       el.classList.toggle('seen', isSeen(s));
       const b = $('[data-tick]', el);
-      if (b) { b.setAttribute('aria-pressed', isSeen(s)); b.setAttribute('aria-label', `${isSeen(s) ? 'Unmark' : 'Mark'} ${s.en || s.sci} as seen`); }
+      if (b) { b.setAttribute('aria-pressed', isSeen(s)); b.setAttribute('aria-label', `${isSeen(s) ? 'Unmark' : 'Mark'} ${dn(s)} as seen`); }
       const right = $('.right', el);
       if (right) right.innerHTML = `${checklist[s.id]?.d ? `<span>seen ${esc(checklist[s.id].d)}</span>` : ''}<span>${fmt(s.obs)} obs</span>`;
     });
@@ -291,6 +430,134 @@
     $('#resultCount').textContent = `${fmt(current.length)} species · ${fmt(seenN)} seen` + (ui.q ? ` · matching “${ui.q}”` : '');
     if (openId === s.id) renderSeenBox(s);
   }
+
+  // ---------- search by location ----------
+  // Lists the species iNaturalist observers have recorded inside a circle, then
+  // filters the list to them. Group ids: birds, mammals, reptiles, amphibians, fungi.
+  const area = { ids: null, counts: null };
+  const AREA_TAXA = [3, 40151, 26036, 20978, 47170];
+  const CR_CENTER = [9.75, -84.2];
+  let areaToken = 0;
+  let locMap = null, locCircle = null, locDot = null;
+  let draft = ui.loc ? { ...ui.loc } : null;
+  const radiusKm = () => Number($('#locR').value);
+  const placeName = (lat, lng) => `${lat.toFixed(2)}, ${lng.toFixed(2)}`;
+
+  function drawDraft(fit) {
+    if (!locMap || !draft) return;
+    const c = [draft.lat, draft.lng], r = radiusKm() * 1000;
+    if (locCircle) { locCircle.setLatLng(c).setRadius(r); locDot.setLatLng(c); }
+    else {
+      locCircle = L.circle(c, { radius: r, color: '#2f7d32', weight: 2, fillOpacity: 0.15 }).addTo(locMap);
+      locDot = L.circleMarker(c, { radius: 6, color: '#fff', weight: 2, fillColor: '#2f7d32', fillOpacity: 1 }).addTo(locMap);
+    }
+    if (fit) locMap.fitBounds(locCircle.getBounds(), { maxZoom: 12 });
+  }
+  function setDraft(lat, lng, name, fit) {
+    draft = { lat: +lat.toFixed(4), lng: +lng.toFixed(4), name: name || placeName(lat, lng) };
+    $('#locHint').textContent = draft.name;
+    $('#locApply').disabled = false;
+    drawDraft(fit);
+  }
+  function openLoc() {
+    $('#locPanel').hidden = false;
+    $('#locBtn').setAttribute('aria-expanded', 'true');
+    if (!locMap && typeof L !== 'undefined') {
+      locMap = L.map('locMap', { zoomSnap: 0.5 }).setView(draft ? [draft.lat, draft.lng] : CR_CENTER, draft ? 9 : 7);
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, crossOrigin: true, attribution: '© OpenStreetMap contributors' }).addTo(locMap);
+      locMap.on('click', (e) => setDraft(e.latlng.lat, e.latlng.lng, null, false));
+      drawDraft(true);
+    }
+    setTimeout(() => locMap && locMap.invalidateSize(), 0);
+  }
+  function closeLoc() { $('#locPanel').hidden = true; $('#locBtn').setAttribute('aria-expanded', 'false'); }
+
+  function syncAreaUi() {
+    const on = !!area.ids;
+    $('#locBtn').classList.toggle('on', on);
+    $('#locBar').hidden = !on;
+    const sort = $('#sort'), opt = sort.querySelector('option[value="near"]');
+    if (on && !opt) sort.add(new Option('Most observed in this area', 'near'), sort.options[1]);
+    if (!on && opt) { opt.remove(); if (ui.sort === 'near') { ui.sort = 'tax'; sort.value = 'tax'; } }
+    if (on) {
+      const n = species.filter((s) => area.ids.has(s.inat)).length;
+      $('#locBarText').textContent = `Area search: ${ui.loc.name} · ${ui.loc.r} km · ${fmt(n)} species`;
+    }
+  }
+  async function applyArea(a) {
+    const token = ++areaToken;
+    $('#locBar').hidden = false;
+    $('#locBarText').textContent = 'Loading species for this area…';
+    try {
+      const counts = new Map();
+      await Promise.all(AREA_TAXA.map(async (taxon) => {
+        for (let page = 1; page <= 6; page++) {
+          const r = await getJson(`${INAT}/observations/species_counts?taxon_id=${taxon}&lat=${a.lat}&lng=${a.lng}&radius=${a.r}&verifiable=true&captive=false&per_page=500&page=${page}&locale=en`);
+          r.results.forEach((x) => counts.set(x.taxon.id, x.count));
+          if (page * 500 >= r.total_results) break;
+        }
+      }));
+      if (token !== areaToken) return;
+      area.ids = new Set(counts.keys());
+      area.counts = counts;
+      ui.loc = a;
+      saveUi();
+      syncAreaUi();
+      render();
+    } catch {
+      if (token !== areaToken) return;
+      toast('Could not load species for this area (offline?).');
+      syncAreaUi();
+    }
+  }
+  function clearArea() {
+    areaToken++;
+    area.ids = area.counts = null;
+    ui.loc = null;
+    saveUi();
+    syncAreaUi();
+    render();
+  }
+  $('#locBtn').addEventListener('click', () => ($('#locPanel').hidden ? openLoc() : closeLoc()));
+  $('#locClose').addEventListener('click', closeLoc);
+  $('#locClear').addEventListener('click', () => { clearArea(); draft = null; $('#locApply').disabled = true; $('#locHint').textContent = t('Tap the map to place the centre of your search area.'); if (locCircle) { locCircle.remove(); locDot.remove(); locCircle = locDot = null; } });
+  $('#locBarX').addEventListener('click', clearArea);
+  $('#locR').addEventListener('input', () => { $('#locRv').textContent = `${radiusKm()} km`; drawDraft(false); });
+  $('#locR').addEventListener('change', () => drawDraft(true));
+  $('#locApply').addEventListener('click', () => {
+    if (!draft) return;
+    applyArea({ lat: draft.lat, lng: draft.lng, r: radiusKm(), name: draft.name });
+    closeLoc();
+  });
+  $('#locGps').addEventListener('click', () => {
+    if (!navigator.geolocation) { toast('Your browser could not get your location.'); return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => setDraft(p.coords.latitude, p.coords.longitude, t('My location'), true),
+      () => toast('Your browser could not get your location.'),
+      { enableHighAccuracy: false, timeout: 10000 });
+  });
+  async function findPlace() {
+    const q = $('#locQ').value.trim(), list = $('#locResults');
+    if (!q) return;
+    list.hidden = false;
+    list.innerHTML = `<li class="muted" style="padding:6px 10px">Searching…</li>`;
+    try {
+      const rows = await getJson(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=cr&accept-language=${ES_ON ? 'es' : 'en'}&q=${encodeURIComponent(q)}`);
+      list.innerHTML = rows.length
+        ? rows.map((r, i) => `<li><button type="button" data-i="${i}">${esc(r.display_name)}</button></li>`).join('')
+        : `<li class="muted" style="padding:6px 10px">No places found.</li>`;
+      list.onclick = (e) => {
+        const b = e.target.closest('[data-i]');
+        if (!b) return;
+        const r = rows[+b.dataset.i];
+        setDraft(+r.lat, +r.lon, r.display_name.split(',').slice(0, 2).join(',').trim(), true);
+        list.hidden = true;
+      };
+    } catch { list.innerHTML = `<li class="muted" style="padding:6px 10px">Could not search places (offline?).</li>`; }
+  }
+  $('#locFind').addEventListener('click', findPlace);
+  $('#locQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); findPlace(); } });
+  if (ui.loc) { $('#locR').value = ui.loc.r; $('#locRv').textContent = `${ui.loc.r} km`; $('#locApply').disabled = false; }
 
   // ---------- events: list ----------
   $('#results').addEventListener('click', (e) => {
@@ -332,6 +599,7 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#q').focus(); }
     if (e.key === 'Escape' && openId) closeDetail();
+    else if (e.key === 'Escape' && !$('#locPanel').hidden) closeLoc();
   });
 
   // ---------- detail ----------
@@ -420,12 +688,12 @@
 
     $('#detailBody').innerHTML = `
       <div class="d-hero" style="--bar:${color}">
-        <figure class="d-photo" style="margin:0">${big ? `<img src="${esc(big)}"${corsAttr(big)} alt="${esc(s.en || s.sci)}"><figcaption>${s.photoKind === 'specimen' ? 'Museum specimen · ' : ''}${esc(s.attr || '')}${s.photoLink ? ` · <a href="${esc(s.photoLink)}" target="_blank" rel="noopener">source</a>` : ''}${s.seeLink ? ` · <a href="${esc(s.seeLink.url)}" target="_blank" rel="noopener">${esc(s.seeLink.label)}</a>` : ''}</figcaption>` : `<div class="muted" style="padding:40px">No public photo found yet${s.seeLink ? `<br><a href="${esc(s.seeLink.url)}" target="_blank" rel="noopener">${esc(s.seeLink.label)}</a>` : ''}</div>`}</figure>
+        <figure class="d-photo" style="margin:0">${big ? `<img src="${esc(big)}"${corsAttr(big)} alt="${esc(dn(s))}"><figcaption>${s.photoKind === 'specimen' ? 'Museum specimen · ' : ''}${esc(s.attr || '')}${s.photoLink ? ` · <a href="${esc(s.photoLink)}" target="_blank" rel="noopener">source</a>` : ''}${s.seeLink ? ` · <a href="${esc(s.seeLink.url)}" target="_blank" rel="noopener">${esc(s.seeLink.label)}</a>` : ''}</figcaption>` : `<div class="muted" style="padding:40px">No public photo found yet${s.seeLink ? `<br><a href="${esc(s.seeLink.url)}" target="_blank" rel="noopener">${esc(s.seeLink.label)}</a>` : ''}</div>`}</figure>
         <div class="d-head">
           <span class="grp">${esc(groupLabel)}</span>
-          <h2 id="dTitle">${esc(s.en || s.sci)}</h2>
-          ${s.en ? `<span class="sn"><i>${esc(s.sci)}</i></span>` : ''}
-          ${s.es ? `<span class="es">Español: ${esc(s.es)}</span>` : ''}
+          <h2 id="dTitle">${esc(dn(s))}</h2>
+          ${dn(s) !== s.sci ? `<span class="sn"><i>${esc(s.sci)}</i></span>` : ''}
+          ${ES_ON ? (s.en && s.es ? `<span class="es">English: ${esc(s.en)}</span>` : "") : (s.es ? `<span class="es">Español: ${esc(s.es)}</span>` : "")}
           <span class="tax">${[s.order, s.family && `${s.family}${s.familyEn ? ' (' + s.familyEn + ')' : ''}`].filter(Boolean).map(esc).join(' › ')}</span>
           <div class="tags">${s.ext ? '<span class="tag ext">Extinct</span>' : ''}${s.u ? '<span class="tag unconf">Unconfirmed</span>' : ''}${s.ed ? `<span class="tag ed-${s.ed.c}">${EDIBLE_TAG[s.ed.c]}</span>` : ''}${s.add ? `<span class="tag added">${ADD_TAG[s.add]}</span>` : ''}${est}${iucn}${s.list ? '<span class="tag">On iNat Costa Rica checklist</span>' : ''}</div>
           ${s.u ? `<p class="unconf-note">${esc(UNCONF_NOTE[s.u])}</p>` : ''}
@@ -1455,6 +1723,7 @@
   renderFamilies();
   render();
   renderSync();
+  if (ui.loc) applyArea(ui.loc);
   if (FIREBASE && sync.email) startCloud().catch((err) => { syncError = err.message; renderSync(); });
   detectServer().finally(route);
 })();

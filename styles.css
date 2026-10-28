@@ -467,3 +467,38 @@ sup.cite { font-size: 10px; color: var(--brand); margin-left: 1px; }
   .chat { right: 0; bottom: 0; width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
   .chat-fab { right: 16px; bottom: 16px; }
 }
+
+/* ---------- location search and language ---------- */
+.search input { padding-right: 44px; }
+.loc-btn { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; display: grid; place-items: center; color: var(--ink-3); }
+.loc-btn svg { position: static; transform: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+.loc-btn:hover, .loc-btn[aria-expanded="true"], .loc-btn.on { color: var(--brand-ink); background: var(--brand); }
+.lang-btn { font-weight: 700; padding: 8px 12px; }
+.loc-panel {
+  position: absolute; left: 50%; top: calc(100% + 6px); transform: translateX(-50%); z-index: 30;
+  width: min(560px, calc(100vw - 24px)); padding: 12px; display: grid; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.loc-panel[hidden] { display: none; }
+.loc-panel .muted { margin: 0; }
+.loc-row { display: flex; gap: 8px; }
+.loc-row input { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); outline: none; }
+.loc-row input:focus { border-color: var(--brand); }
+.loc-results { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--line); border-radius: 10px; max-height: 160px; overflow: auto; }
+.loc-results button { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 0; background: none; border-radius: 8px; font-size: 13px; }
+.loc-results button:hover { background: var(--surface-2); }
+#locMap { height: 300px; border-radius: 10px; border: 1px solid var(--line); z-index: 0; }
+.loc-radius { display: flex; align-items: center; gap: 10px; }
+.loc-radius input { flex: 1; accent-color: var(--brand); }
+.loc-radius b { min-width: 58px; text-align: right; }
+.loc-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.loc-bar { display: flex; align-items: center; gap: 8px; margin: 8px 20px 0; padding: 6px 8px 6px 14px; width: fit-content; max-width: calc(100% - 40px); border-radius: 999px; background: var(--brand-soft); color: var(--ink); font-size: 13px; }
+.loc-bar[hidden] { display: none; }
+.loc-bar button { border: 0; background: none; font-size: 18px; line-height: 1; width: 24px; height: 24px; border-radius: 50%; }
+.loc-bar button:hover { background: var(--surface); }
+.near { display: block; font-size: 12px; color: var(--brand); font-weight: 600; }
+@media (max-width: 720px) {
+  .loc-panel { position: fixed; left: 12px; right: 12px; top: 64px; transform: none; width: auto; max-height: calc(100vh - 80px); overflow: auto; }
+  .loc-row { flex-wrap: wrap; }
+  #locMap { height: 240px; }
+}
